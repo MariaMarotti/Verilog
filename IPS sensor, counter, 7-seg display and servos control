@@ -1,0 +1,128 @@
+`timescale 1us / 1ns
+//////////////////////////////////////////////////////////////////////////////////
+
+module Switches(
+    input CLK,
+    input [1:0] SW,
+    input direction,
+    input [2:0] IPS,
+    input reset,
+    input current,
+    output [3:0] IN,
+    output a, b, c, d, e, f, g, dp,
+    output [3:0] an,
+    output LED,
+    output servo,
+    output servo2
+    );
+    
+    assign LED = current;
+    
+    reg segments;
+    reg [19:0] COUNTER;
+    reg [20:0] scounter;
+    reg [3:0] IN_Last;
+    
+    reg        servo_reg;
+    reg servo2_reg;
+
+    reg [17:0] control	= 'd0; 
+    reg [17:0] control2 = 'd0;
+    
+//    always@(posedge CLK) //Whenever the clock has a rising signal
+//    begin //Start counting until 2^20, reset if final value is reached
+//        if (COUNTER < 2**20) begin
+//            COUNTER <= COUNTER + 1;
+//        end else begin COUNTER <= 0; end end
+
+assign IN[3:0] = (~IPS[1]) ? 4'b1001 : 				        //If middle IPS lit, Go forwards.
+				 (~IPS[2]) ? 4'b1010 :				        //If left IPS lit, Go left.
+				 (~IPS[2] && ~IPS[1]) ? 4'b1010 :				        //If left IPS lit, Go left.
+				 (~IPS[0] && ~IPS[1]) ? 4'b0101 :				        //If left IPS lit, Go left.
+				 (~IPS[0]) ? 4'b0101 : IN_Last;	   			//If right IPS lit, go right. If none lit stop.
+
+
+always @ (posedge CLK) begin
+	IN_Last <= IN;
+	end
+        
+localparam N = 18; //a variable to hold a value = 18
+
+reg [N-1:0] count; //the 18 bit counter which allows us to multiplex at 1000Hz
+
+always @(posedge CLK) begin
+
+//Servo algorithm
+	scounter <= scounter + 1;
+	if(scounter == 'd1999999)
+			scounter <= 0;
+			
+    if (direction == 1) //PWM signal to control servo 2
+        control2 = 'd40000; //at 0 degrees
+    else
+        control2 = 'd250000; // at 180 degrees
+    
+    if (scounter < control2) 
+        servo2_reg <= 1;
+    else
+        servo2_reg <= 0;
+    
+    case (SW) //PWM signal to control servo 1
+    2'b00 : control = 'd250000 ; // postion 1 PWM
+    2'b01 : control = 'd170000 ; // position 2 PWM
+    2'b10 : control = 'd90000 ; // position 3 PWM 
+    2'b11 : control = 'd5000 ; // position 4 PWM
+    endcase
+    
+	if(scounter < control)
+			servo_reg <= 1;
+	else
+			servo_reg <= 0;
+end 
+
+always @ (posedge CLK or posedge reset)
+ begin
+  if (reset)
+   count <= 0;
+  else
+   count <= count + 1;
+ end
+
+reg [6:0]sseg; //the 7 bit register to hold the data to output
+reg [3:0]an_temp; //register for the 4 bit enable
+reg [6:0] sseg_temp; // 7 bit register to hold the binary value of each input given
+
+always @ (*)
+ begin
+  case(count[N-1:N-2]) //
+   
+   2'b00 :  //
+    begin
+    sseg = sseg_temp;
+     an_temp = 4'b0111; //calling first anode/digit
+     
+     if (SW[0]) begin //display F if SW[0] = 1
+            sseg_temp = 7'b0001110; 
+     end else if (SW[1]) begin  //display B if SW[1] = 1
+            sseg_temp = 7'b0000011; 
+     end else sseg_temp = 7'b0111111; //dash (no SW = 1)
+     end
+    
+    2'b01 :  //calling second anode/digit
+    begin
+    sseg = sseg_temp;
+     an_temp = 4'b1011;
+     
+     if (current) begin // U or G on the 7 segment
+            sseg_temp = 7'b0100000; 
+     end else sseg_temp = 7'b1000001; 
+    end endcase end
+ 
+//assign values to actual servo outputs
+assign servo	= servo_reg;
+assign servo2   = servo2_reg;
+ 
+assign an = an_temp;
+assign {g, f, e, d, c, b, a} = sseg_temp;
+assign dp = 1'b1;
+endmodule
